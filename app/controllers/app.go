@@ -14,12 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-
+	
 	"gopkg.in/mgo.v2/bson"
-
-	"github.com/revel/examples/upload/app/routes"
-	"github.com/revel/revel"
 	"gopkg.in/mgo.v2"
+	
+	"github.com/revel/revel"
+
 )
 
 const (
@@ -44,9 +44,9 @@ type App struct {
 
 type dbPost struct {
 	id       bson.ObjectId `bson:"_id,omintempy"`
-	tags     string
-	path     string
-	shareURL string
+	Tags     string `json:"tags"`
+	Path     string `json:"path"`
+	ShareURL string `json:"shareURL"`
 }
 type dbComment struct {
 	id       bson.ObjectId `bson:"_id,omintempy"`
@@ -56,14 +56,15 @@ type dbComment struct {
 
 var awsKey string
 var awsSecret string
+var dbC mgo.Collection
 
 func (a App) Index() revel.Result {
 	saludo := "eea ea eaeaeaea"
-
-	url := "mongodb://heroku_c8zbgw18:rv1q4bsr8036m2igtqhs9q22ro@ds117919.mlab.com:17919/heroku_c8zbgw18"
-	session, err := mgo.Dial(url)
-	c := session.DB("heroku_c8zbgw18").C("anonstagram")
-	count, _ := c.Count()
+	mongoUser :=	os.Getenv("mongoUser")
+	mongoURL := os.Getenv("mongoURL")
+	mongoSession, err := mgo.Dial(mongoURL)
+	dbC := mongoSession.DB(mongoUser).C("anonstagram")
+	count, _ := dbC.Count()
 	saludo = saludo + ". " + fmt.Sprintf("%d", count)
 
 	if err != nil {
@@ -81,7 +82,7 @@ func (c *App) Upload(pic []byte) revel.Result {
 		Message("Minimum a file size of 100KB expected")
 	c.Validation.MaxSize(pic, 5*MB).
 		Message("File cannot be larger than 2MB")
-
+	
 	// Check format of the file.
 	conf, format, err := image.DecodeConfig(bytes.NewReader(pic))
 	c.Validation.Required(err == nil).Key("pic").Message("Incorrect file format")
@@ -96,9 +97,8 @@ func (c *App) Upload(pic []byte) revel.Result {
 	if c.Validation.HasErrors() {
 		c.Validation.Keep()
 		c.FlashParams()
-		return c.Redirect(routes.App.Before())
+		return c.Redirect(App.Index)
 	}
-
 	awsKey = os.Getenv("awsKey")
 	awsSecret = os.Getenv("awsSecret")
 	token := ""
@@ -124,6 +124,21 @@ func (c *App) Upload(pic []byte) revel.Result {
 	if errPut != nil {
 		panic(errPut.Error())
 	}
+
+	mongoUser :=	os.Getenv("mongoUser")
+	mongoURL := os.Getenv("mongoURL")
+	mongoSession, err := mgo.Dial(mongoURL)
+	if err==nil {
+		dbC := mongoSession.DB(mongoUser).C("anonstagram")
+		var post dbPost
+		post.Path = awsutil.StringValue(resp)
+		post.ShareURL = "/anon/" + awsutil.StringValue(resp)
+		post.Tags = "lame, very lame"
+
+		dbC.Insert(post)
+		
+	}
+
 	return c.RenderJSON(FileInfo{
 		ContentType: c.Params.Files["pic"][0].Header.Get("Content-Type"),
 		Filename:    awsutil.StringValue(resp),
